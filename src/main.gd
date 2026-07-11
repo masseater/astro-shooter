@@ -785,6 +785,7 @@ func show_results(result: Dictionary, unlocks: Array[String]) -> void:
 	background.visible = true
 	background_dimmer.visible = true
 	var panel := centered_panel(Vector2(780, 660))
+	panel.name = "ResultPanel"
 	var box := panel.get_child(0) as VBoxContainer
 	var cleared := bool(result.cleared)
 	var final_clear: bool = cleared and int(result.zone) == ContentCatalog.ZONE_COUNT - 1
@@ -797,16 +798,75 @@ func show_results(result: Dictionary, unlocks: Array[String]) -> void:
 	if final_clear:
 		box.add_child(make_label(tx("Helix Crownは沈黙し、未知の信号が初めて鮮明に届いた。", "The Helix Crown falls silent. The unknown signal finally comes through."), 17, TEAL, HORIZONTAL_ALIGNMENT_CENTER))
 	if not unlocks.is_empty():
-		var unlock_text := "\n".join(unlocks)
-		box.add_child(make_label(unlock_text, 14, Color("f7c66b"), HORIZONTAL_ALIGNMENT_CENTER))
+		var scroll := ScrollContainer.new()
+		scroll.name = "ResultUnlockScroll"
+		scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		scroll.follow_focus = true
+		scroll.focus_mode = Control.FOCUS_ALL
+		scroll.draw_focus_border = true
+		scroll.add_theme_stylebox_override("focus", style_box(Color(0, 0, 0, 0), SHARD, 2, 6))
+		scroll.custom_minimum_size = Vector2(0, 110)
+		scroll.gui_input.connect(_handle_result_scroll_input.bind(scroll))
+		var unlock_margin := MarginContainer.new()
+		unlock_margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		unlock_margin.add_theme_constant_override("margin_left", 8)
+		unlock_margin.add_theme_constant_override("margin_right", 22)
+		var unlock_label := make_label("\n".join(unlocks), 14, Color("f7c66b"), HORIZONTAL_ALIGNMENT_CENTER)
+		unlock_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		unlock_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		unlock_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+		unlock_margin.add_child(unlock_label)
+		scroll.add_child(unlock_margin)
+		box.add_child(scroll)
 	var buttons := HBoxContainer.new()
+	buttons.name = "ResultActions"
 	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
 	if final_clear:
-		buttons.add_child(make_button(tx("エピローグ", "EPILOGUE"), show_epilogue, Vector2(260, 54)))
+		var epilogue_button := make_button(tx("エピローグ", "EPILOGUE"), show_epilogue, Vector2(260, 54))
+		epilogue_button.name = "ResultPrimaryAction"
+		buttons.add_child(epilogue_button)
 	else:
-		buttons.add_child(make_button(tx("格納庫へ", "HANGAR"), show_hub, Vector2(210, 54)))
-		buttons.add_child(make_button(tx("再出撃", "REDEPLOY"), _start_zone.bind(int(result.zone)), Vector2(210, 54)))
+		var hangar_button := make_button(tx("格納庫へ", "HANGAR"), show_hub, Vector2(210, 54))
+		hangar_button.name = "ResultPrimaryAction"
+		buttons.add_child(hangar_button)
+		var redeploy_button := make_button(tx("再出撃", "REDEPLOY"), _start_zone.bind(int(result.zone)), Vector2(210, 54))
+		redeploy_button.name = "ResultSecondaryAction"
+		buttons.add_child(redeploy_button)
 	box.add_child(buttons)
+
+
+func _handle_result_scroll_input(event: InputEvent, scroll: ScrollContainer) -> void:
+	if not event.is_pressed():
+		return
+	var scroll_bar := scroll.get_v_scroll_bar()
+	var maximum := maxi(0, int(scroll_bar.max_value - scroll_bar.page))
+	var step := maxi(48, int(scroll.size.y * 0.18))
+	if event.is_action_pressed("ui_down"):
+		if scroll.scroll_vertical < maximum:
+			scroll.scroll_vertical = mini(maximum, scroll.scroll_vertical + step)
+		else:
+			var primary_action := screen.find_child("ResultPrimaryAction", true, false) as Button
+			if primary_action != null:
+				primary_action.grab_focus()
+		scroll.accept_event()
+	elif event.is_action_pressed("ui_up"):
+		scroll.scroll_vertical = maxi(0, scroll.scroll_vertical - step)
+		scroll.accept_event()
+	elif event is InputEventKey and event.keycode == KEY_PAGEUP:
+		scroll.scroll_vertical = maxi(0, scroll.scroll_vertical - maxi(step, int(scroll.size.y * 0.8)))
+		scroll.accept_event()
+	elif event is InputEventKey and event.keycode == KEY_PAGEDOWN:
+		scroll.scroll_vertical = mini(maximum, scroll.scroll_vertical + maxi(step, int(scroll.size.y * 0.8)))
+		scroll.accept_event()
+	elif event is InputEventKey and event.keycode == KEY_HOME:
+		scroll.scroll_vertical = 0
+		scroll.accept_event()
+	elif event is InputEventKey and event.keycode == KEY_END:
+		scroll.scroll_vertical = maximum
+		scroll.accept_event()
 
 
 func show_epilogue() -> void:
@@ -908,15 +968,37 @@ func make_button(text: String, callback: Callable, minimum := Vector2(160, 48)) 
 
 func centered_panel(panel_size: Vector2) -> PanelContainer:
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = -panel_size / 2.0
-	panel.size = panel_size
+	panel.clip_contents = true
+	_fit_centered_panel(panel, panel_size)
+	var resize_callback := _fit_centered_panel.bind(panel, panel_size)
+	screen.resized.connect(resize_callback)
+	panel.tree_exiting.connect(func():
+		if is_instance_valid(screen) and screen.resized.is_connected(resize_callback):
+			screen.resized.disconnect(resize_callback)
+	)
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 14)
 	panel.add_child(box)
 	screen.add_child(panel)
 	return panel
+
+
+func _fit_centered_panel(panel: Control, desired_size: Vector2) -> void:
+	if not is_instance_valid(panel) or not is_instance_valid(screen):
+		return
+	var viewport_size := screen.size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		viewport_size = Vector2(1280, 720)
+	var fitted_size := Vector2(
+		minf(desired_size.x, maxf(280.0, viewport_size.x - 32.0)),
+		minf(desired_size.y, maxf(240.0, viewport_size.y - 32.0))
+	)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -fitted_size.x * 0.5
+	panel.offset_top = -fitted_size.y * 0.5
+	panel.offset_right = fitted_size.x * 0.5
+	panel.offset_bottom = fitted_size.y * 0.5
 
 
 func screen_margin() -> MarginContainer:
