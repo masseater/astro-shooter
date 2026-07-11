@@ -4,6 +4,10 @@ var failures: Array[String] = []
 
 
 func _init() -> void:
+	call_deferred("_run_tests")
+
+
+func _run_tests() -> void:
 	test_catalog()
 	test_progression_math()
 	test_loadout_and_idle()
@@ -158,7 +162,6 @@ func test_game_session_loop() -> void:
 	progress.data = progress.default_data()
 	var session = load("res://src/game/game_session.gd").new()
 	session.configure(0, progress.combat_stats(), ["pulse", "prism"])
-	session._ready()
 	root.add_child(session)
 	expect(session.asteroids.size() == 12, "a sortie must spawn salvage targets")
 	expect(not session.active_synergies.is_empty(), "compatible weapon families must activate a combat synergy")
@@ -170,7 +173,7 @@ func test_game_session_loop() -> void:
 	expect(not session.beans.is_empty(), "destroying an Aether Node must release collectible Shards")
 	session.spawn_boss()
 	expect(session.boss_spawned and not session.boss.is_empty(), "a sector must spawn its configured guardian")
-	session.free()
+	cleanup_session(session)
 	progress.free()
 
 
@@ -210,7 +213,15 @@ func test_all_combat_content() -> void:
 	var started := Time.get_ticks_msec()
 	for frame in range(60):session.update_player_bullets(0.016);session.update_enemy_bullets(0.016);session.update_enemies(0.016);session.update_battle_mechanic(0.016);session.update_particles(0.016)
 	expect(Time.get_ticks_msec() - started < 1000, "maximum-density simulation must sustain a 60fps-class CPU budget")
-	session.free(); progress.free()
+	cleanup_session(session); progress.free()
+
+
+func cleanup_session(session: GameSession) -> void:
+	if session.sfx_player != null:
+		session.sfx_player.stop()
+		session.sfx_player.stream = null
+	session.sfx_streams.clear()
+	session.free()
 
 
 func test_save_roundtrip() -> void:

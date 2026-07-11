@@ -51,8 +51,15 @@ func test_export_presets() -> void:
 	var presets := read_text("res://export_presets.cfg")
 	for preset in ["name=\"Web\"", "name=\"Windows Desktop\"", "name=\"Linux\"", "name=\"macOS\""]:
 		expect(preset in presets, "required export preset is missing: " + preset)
-	expect("assets/backgrounds/**" in presets, "unused legacy concept art must be excluded from every release")
-	expect(presets.count("tests/**") == 4, "tests must be excluded from every release preset")
+	var preset_blocks: Array[String] = []
+	for block in presets.split("[preset."):
+		var header := block.get_slice("\n", 0)
+		if ".options]" not in header and "name=\"" in block:
+			preset_blocks.append(block)
+	expect(preset_blocks.size() == 4, "all four export preset blocks must be readable")
+	for block in preset_blocks:
+		expect("assets/backgrounds/**" in block, "unused legacy concept art must be excluded from every release")
+		expect("tests/**" in block, "tests must be excluded from every release preset")
 
 
 func test_required_notices() -> void:

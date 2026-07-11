@@ -8,13 +8,14 @@ var time := 0.0
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_process(true)
-	seed(72491)
+	var star_rng := RandomNumberGenerator.new()
+	star_rng.seed = 72491
 	for index in range(150):
 		stars.append({
-			"pos": Vector2(randf_range(0.0, 1280.0), randf_range(0.0, 720.0)),
-			"size": randf_range(0.7, 2.2),
-			"phase": randf() * TAU,
-			"speed": randf_range(0.45, 1.35)
+			"pos": Vector2(star_rng.randf_range(0.0, 1280.0), star_rng.randf_range(0.0, 720.0)),
+			"size": star_rng.randf_range(0.7, 2.2),
+			"phase": star_rng.randf() * TAU,
+			"speed": star_rng.randf_range(0.45, 1.35)
 		})
 
 

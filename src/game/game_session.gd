@@ -828,7 +828,8 @@ func setting_enabled(key: String, fallback: bool) -> bool:
 
 func draw_mechanic_field() -> void:
 	var pulse := 0.5 + sin(mechanic_time * 1.4) * 0.5
-	match String(zone.mechanic):
+	var active_mechanic := String(current_boss_phase().arena) if not boss.is_empty() else String(zone.mechanic)
+	match active_mechanic:
 		"gravity_well":
 			for ring in range(5): draw_arc(Vector2(640,390), 55.0 + ring * 48.0 + pulse * 10.0, mechanic_time * 0.2, mechanic_time * 0.2 + PI * 1.5, 48, Color(zone.color,0.13),2.0)
 		"moving_wall","hazard_tide":
