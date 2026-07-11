@@ -41,6 +41,9 @@ jobs:
       - name: Run content and progression tests
         run: godot --headless --path . --script tests/test_content.gd
 
+      - name: Run UI navigation and combat smoke tests
+        run: godot --headless --path . --script tests/test_ui.gd
+
       - name: Run release readiness tests
         run: godot --headless --path . --script tests/test_release_readiness.gd
 

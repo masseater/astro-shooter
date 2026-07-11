@@ -1,12 +1,15 @@
 # Riftweld: Signalbreak
 
-Godot 4.7製のシングルプレイヤー宇宙サルベージ×弾幕アクションです。自動射撃でAether Nodeを解体し、Shardを回収して船を恒久改修しながら、Helix Directorateが封鎖した5つの宙域を突破します。
+Godot 4.7製のシングルプレイヤー宇宙サルベージ×弾幕アクションです。自動射撃でAether Nodeを解体し、Shardを回収して船を恒久改修しながら、Helix Directorateが封鎖した全10章・100セクターを突破します。
 
 ## 収録内容
 
-- 固有の敵挙動と弾幕を持つ5セクター、5体のガーディアン
-- 7系統、合計35件の恒久アップグレード
-- 10件のタスクと12件のローカル実績
+- 20種の戦場ルールを変形した100セクター、固有名・多段階弾幕・固有外観を持つ100体のガーディアン
+- 60種の敵アーキタイプとステージ別バリエーション
+- 24武器系統から最大6系統を重複なしで編成できる兵装デッキ
+- 武器960、機体300、施設200、装備枠5、基幹35の合計1500件の恒久アップグレード
+- 10施設による最大8時間のオフライン回収、200件の任務、240件のローカル実績
+- 探索・標準・危険の3難易度（日英対応、報酬差・進行制限なし）
 - マウス、キーボード、一般的なXInput互換ゲームパッド対応
 - 自動保存、音量、画面シェイク、全画面、進行リセット
 - Windows、Linux、macOS、デスクトップWeb向け書き出し
@@ -37,6 +40,7 @@ godot --path .
 ```sh
 godot --headless --editor --path . --quit
 godot --headless --path . --script tests/test_content.gd
+godot --headless --path . --script tests/test_ui.gd
 godot --headless --path . --script tests/test_release_readiness.gd
 ```
 
