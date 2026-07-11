@@ -18,6 +18,8 @@ func run_checks() -> void:
 		progress = load("res://src/progress.gd").new()
 		progress.name = "Progress"
 		root.add_child(progress)
+	expect(progress.save_path != Progress.SAVE_PATH, "automated UI tests must never use the player save path")
+	cleanup_save(progress.save_path)
 	progress.data = progress.default_data()
 	progress.data.coffee = 999999999
 	progress.data.highest_zone = 99
@@ -32,11 +34,78 @@ func run_checks() -> void:
 	expect_controls_inside(app,"chapter hub")
 	app.selected_chapter=0;app.change_chapter(1);expect(app.selected_chapter==1,"chapter navigation must advance exactly one chapter");app.change_chapter(-1);expect(app.selected_chapter==0,"chapter navigation must return exactly one chapter")
 	capture_viewport("hub")
-	app.show_upgrades("weapon", 0)
+	app.show_upgrades()
 	await process_frame
-	expect(app.screen.find_children("*", "Button", true, false).size() >= 28, "upgrade page must expose category tabs and 24 nodes")
+	var upgrade_tree := app.screen.find_child("UpgradeTree", true, false) as UpgradeTreeView
+	expect(upgrade_tree != null and upgrade_tree.positions.size() == 1500, "upgrade screen must expose all fifteen hundred nodes in one tree")
+	expect(app.screen.find_children("*", "Button", true, false).size() <= 3, "upgrade tree must not fall back to category tabs or paged node cards")
+	if upgrade_tree != null:
+		var selected_before := upgrade_tree.selected_id
+		upgrade_tree.grab_focus()
+		var right_key := InputEventKey.new(); right_key.keycode = KEY_RIGHT; right_key.pressed = true; Input.parse_input_event(right_key)
+		await process_frame
+		expect(upgrade_tree.selected_id != selected_before, "keyboard navigation must move between upgrade tree nodes")
+		right_key.pressed = false; Input.parse_input_event(right_key)
+		var purchasable_id := upgrade_tree._first_available_id()
+		expect(not purchasable_id.is_empty(), "upgrade tree must expose an affordable prerequisite-valid node")
+		upgrade_tree.select_node(purchasable_id)
+		var owned_before: int = progress.data.upgrades.size()
+		var accept_key := InputEventKey.new(); accept_key.keycode = KEY_ENTER; accept_key.pressed = true; Input.parse_input_event(accept_key)
+		await process_frame
+		expect(progress.data.upgrades.size() == owned_before + 1, "upgrade tree accept input must purchase the selected available node")
+		expect(app.upgrade_count_label.text.contains(str(owned_before + 1)) and app.upgrade_shard_label.text.contains(str(progress.coffee())), "upgrade purchase must refresh installed count and shard balance")
+		accept_key.pressed = false; Input.parse_input_event(accept_key)
+		var zoom_before: float = upgrade_tree.zoom
+		var wheel_up := InputEventMouseButton.new(); wheel_up.button_index = MOUSE_BUTTON_WHEEL_UP; wheel_up.pressed = true; wheel_up.position = upgrade_tree.get_global_rect().get_center(); wheel_up.global_position = wheel_up.position
+		upgrade_tree._gui_input(wheel_up)
+		await process_frame
+		expect(upgrade_tree.zoom > zoom_before, "mouse wheel must zoom the upgrade tree canvas")
+		var progression_snapshot: Array = progress.data.upgrades.duplicate()
+		progress.data.upgrades = []
+		for definition in ContentCatalog.upgrades(): progress.data.upgrades.append(String(definition.id))
+		var cold_tree := UpgradeTreeView.new()
+		cold_tree.visible = false
+		app.screen.add_child(cold_tree)
+		var cold_start: int = Time.get_ticks_usec()
+		cold_tree.configure(ContentCatalog.upgrades())
+		var cold_elapsed := int(Time.get_ticks_usec() - cold_start)
+		var cold_budget_usec: int = 200000 if DisplayServer.get_name() == "headless" else 50000
+		expect(cold_elapsed <= cold_budget_usec, "completed fifteen-hundred-node tree cold open exceeded %dus budget: %dus" % [cold_budget_usec, cold_elapsed])
+		cold_tree.free()
+		upgrade_tree.refresh()
+		var tree_frame_times: Array[int] = []
+		for frame in range(45):
+			upgrade_tree.queue_redraw()
+			var tree_frame_start := Time.get_ticks_usec(); RenderingServer.force_draw(); tree_frame_times.append(int(Time.get_ticks_usec() - tree_frame_start))
+		tree_frame_times.sort()
+		var tree_p95_usec: int = tree_frame_times[int(tree_frame_times.size() * 0.95)]
+		var tree_budget_usec: int = 100000 if DisplayServer.get_name() == "headless" else 16667
+		expect(tree_p95_usec <= tree_budget_usec, "fifteen-hundred-node tree rendering exceeded %dus p95 budget: %dus" % [tree_budget_usec, tree_p95_usec])
+		progress.data.upgrades = progression_snapshot
+		upgrade_tree.refresh()
+		var far_id := "weapon_pulse_40"
+		upgrade_tree.select_node(far_id)
 	expect_controls_inside(app,"upgrade page")
 	capture_viewport("upgrades")
+	upgrade_tree.grab_focus()
+	var cancel_pad := InputEventJoypadButton.new(); cancel_pad.button_index = JOY_BUTTON_B; cancel_pad.pressed = true; upgrade_tree._gui_input(cancel_pad)
+	await process_frame
+	await process_frame
+	await process_frame
+	expect(app.screen.find_child("UpgradeTree", true, false) == null and app.screen.find_children("*", "Button", true, false).size() >= 10, "controller cancel must leave the upgrade tree for the hangar")
+	app.show_upgrades()
+	await process_frame
+	await process_frame
+	upgrade_tree = app.screen.find_child("UpgradeTree", true, false) as UpgradeTreeView
+	expect(upgrade_tree.selected_id == app.selected_upgrade_id and upgrade_tree.camera_center.distance_to(upgrade_tree.positions[upgrade_tree.selected_id]) < 1.0, "reopened upgrade tree must restore the selected distant node in view")
+	upgrade_tree.grab_focus()
+	await process_frame
+	var cancel_key := InputEventKey.new(); cancel_key.keycode = KEY_ESCAPE; cancel_key.pressed = true; Input.parse_input_event(cancel_key)
+	await process_frame
+	await process_frame
+	await process_frame
+	expect(app.screen.find_child("UpgradeTree", true, false) == null and app.screen.find_children("*", "Button", true, false).size() >= 10, "keyboard cancel must leave the upgrade tree for the hangar")
+	cancel_key.pressed = false; Input.parse_input_event(cancel_key)
 	app.show_loadout()
 	await process_frame
 	expect(app.screen.find_children("*", "Button", true, false).size() >= 25, "loadout must expose all 24 weapon families")
@@ -134,6 +203,7 @@ func run_checks() -> void:
 	await process_frame
 	await process_frame
 	await create_timer(0.1).timeout
+	cleanup_save(progress.save_path)
 	if created_progress: progress.free()
 	if failures.is_empty():
 		print("PASS: UI navigation and sortie smoke checks")
@@ -158,3 +228,8 @@ func expect_controls_inside(app:Control,screen_name:String)->void:
 		if control.visible and control.size.x>0 and control.size.y>0:
 			var rect:=control.get_global_rect()
 			expect(viewport_rect.encloses(rect),"%s control must remain inside 1280x720: %s %s"%[screen_name,control.name,rect])
+
+
+func cleanup_save(path: String) -> void:
+	for suffix in ["", ".bak", ".tmp"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path + suffix))

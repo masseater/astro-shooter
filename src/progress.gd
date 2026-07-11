@@ -15,9 +15,23 @@ var persistence_available := true
 var save_path := SAVE_PATH
 var save_warning := ""
 var pending_idle: Dictionary = {}
+var automated_test_mode := false
+
+
+func _init() -> void:
+	for argument in OS.get_cmdline_args():
+		var normalized_argument := String(argument).replace("\\", "/")
+		if normalized_argument.contains("tests/") and normalized_argument.ends_with(".gd"):
+			automated_test_mode = true
+			save_path = "user://riftweld_automated_test_save.json"
+			break
 
 
 func _ready() -> void:
+	if automated_test_mode:
+		data = default_data()
+		apply_settings()
+		return
 	load_game()
 	apply_settings()
 	prepare_idle_reward()

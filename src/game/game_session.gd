@@ -8,6 +8,14 @@ signal retreat_requested
 const SIZE := Vector2(1280, 720)
 const PLAY_RECT := Rect2(28, 92, 1224, 594)
 const PLAYER_RADIUS := 11.0
+const PLAYER_HULL := Color("d9f3ff")
+const PLAYER_EDGE := Color("267fbd")
+const PLAYER_CORE := Color("54c9ff")
+const PLAYER_SHIELD := Color("71dcff")
+const HOSTILE_CORE := Color("ff6b62")
+const HOSTILE_BULLET := Color("ff5368")
+const HOSTILE_WARNING := Color("ff6a58")
+const HOSTILE_BOSS := Color("b72f49")
 
 var zone_index := 0
 var zone: Dictionary = {}
@@ -211,7 +219,12 @@ func spawn_player_bullet(direction:Vector2,weapon:Dictionary={},orbital:=false)-
 	if family=="beam":speed=980.0;life=0.8
 	if family in ["boomerang","orbit"]:life=2.6
 	player_bullets.append({"pos":player_pos+direction*16.0,"vel":direction*speed*(1.0+utility*0.12),"life":life*(1.0+utility*0.18),"damage":float(stats.damage)*float(weapon.damage)*power*(1.0+utility*0.20),
-		"weapon":weapon.id,"family":family,"color":weapon.color,"pierce":2+int(utility*0.5) if family in ["pierce","beam"] else 0,"bounces":2+int(utility*0.5) if family=="ricochet" else 0,"utility":utility,"orbital":orbital,"age":0.0})
+		"weapon":weapon.id,"family":family,"color":player_weapon_color(weapon),"pierce":2+int(utility*0.5) if family in ["pierce","beam"] else 0,"bounces":2+int(utility*0.5) if family=="ricochet" else 0,"utility":utility,"orbital":orbital,"age":0.0})
+
+
+func player_weapon_color(weapon: Dictionary) -> Color:
+	var variation: int = abs(String(weapon.get("id", "pulse")).hash()) % 900
+	return Color.from_hsv(0.52 + float(variation) / 10000.0, 0.62, 1.0)
 
 
 func update_player_bullets(delta: float) -> void:
@@ -259,7 +272,7 @@ func update_player_bullets(delta: float) -> void:
 					if family=="slow":enemy.speed*=0.82
 					if family=="chain":chain_damage(enemy.pos,enemy)
 					hit = true
-					impact(enemy.pos, zone.color)
+					impact(enemy.pos, HOSTILE_CORE)
 					if enemy.hp <= 0.0:
 						kills += 1
 						coffee += 3 + zone_index
@@ -551,8 +564,13 @@ func spawn_enemy_id(enemy_id:String)->void:
 		"orbit": [-0.74,-0.5,-0.3,0.3,0.5,0.74][int(definition.form)],
 		"phase": randf() * TAU,
 		"variant":definition.form,"form":definition.form,"behavior":definition.behavior,"movement":definition.movement,"attack":definition.attack,"role_trait":definition.role_trait,
-		"cooldown_multiplier":definition.cooldown_multiplier,"enemy_id":enemy_id,"color":definition.color
+		"cooldown_multiplier":definition.cooldown_multiplier,"enemy_id":enemy_id,"color":hostile_enemy_color(definition)
 	})
+
+
+func hostile_enemy_color(definition: Dictionary) -> Color:
+	var variant := int(definition.get("form", 0))
+	return Color.from_hsv(fmod(0.975 + variant * 0.012, 1.0), 0.72, 0.94)
 
 
 func spawn_boss() -> void:
@@ -625,10 +643,12 @@ func fire_radial(origin: Vector2, count: int, speed: float, offset := 0.0, homin
 		spawn_enemy_bullet(origin, offset + TAU * index / count, speed, zone.color, homing)
 
 
-func spawn_enemy_bullet(origin: Vector2, angle: float, speed: float, color: Color, homing := 0.0) -> void:
+func spawn_enemy_bullet(origin: Vector2, angle: float, speed: float, _source_color: Color, homing := 0.0) -> void:
 	if enemy_bullets.size() >= 240:
 		return
-	enemy_bullets.append({"pos": origin, "vel": Vector2.from_angle(angle) * speed * boss_fire_intensity * float(difficulty.get("bullet_speed", 1.0)), "life": 6.0, "radius": 5.0, "color": color, "homing": homing})
+	var speed_mix := clampf((speed - 100.0) / 320.0, 0.0, 1.0)
+	var projectile_color := HOSTILE_BULLET.lerp(Color("ff9a62"), speed_mix * 0.34)
+	enemy_bullets.append({"pos": origin, "vel": Vector2.from_angle(angle) * speed * boss_fire_intensity * float(difficulty.get("bullet_speed", 1.0)), "life": 6.0, "radius": 5.0, "color": projectile_color, "homing": homing})
 
 
 func fire_boss_pattern() -> void:
@@ -831,27 +851,27 @@ func draw_mechanic_field() -> void:
 	var active_mechanic := String(current_boss_phase().arena) if not boss.is_empty() else String(zone.mechanic)
 	match active_mechanic:
 		"gravity_well":
-			for ring in range(5): draw_arc(Vector2(640,390), 55.0 + ring * 48.0 + pulse * 10.0, mechanic_time * 0.2, mechanic_time * 0.2 + PI * 1.5, 48, Color(zone.color,0.13),2.0)
+			for ring in range(5): draw_arc(Vector2(640,390), 55.0 + ring * 48.0 + pulse * 10.0, mechanic_time * 0.2, mechanic_time * 0.2 + PI * 1.5, 48, Color(HOSTILE_WARNING,0.13),2.0)
 		"moving_wall","hazard_tide":
-			var safe_x := 640.0 + sin(mechanic_time * 0.42) * 430.0; draw_rect(Rect2(safe_x-130.0,92,260,594),Color(zone.color,0.08)); draw_line(Vector2(safe_x-130,92),Vector2(safe_x-130,686),Color(zone.color,0.42),3)
+			var safe_x := 640.0 + sin(mechanic_time * 0.42) * 430.0; draw_rect(Rect2(safe_x-130.0,92,260,594),Color(HOSTILE_WARNING,0.08)); draw_line(Vector2(safe_x-130,92),Vector2(safe_x-130,686),Color(HOSTILE_WARNING,0.55),3)
 		"darkness","signal_jam":
-			draw_rect(PLAY_RECT,Color(0,0,0,0.22+mechanic_progress*0.28)); draw_arc(player_pos,155,0,TAU,48,Color(zone.color,0.2),2)
+			draw_rect(PLAY_RECT,Color(0,0,0,0.22+mechanic_progress*0.28)); draw_arc(player_pos,155,0,TAU,48,Color(HOSTILE_WARNING,0.26),2)
 		"capture_beacons","convoy_guard":
 			var beacon := Vector2(640.0 + cos(mechanic_time * 0.28) * 330.0,390.0 + sin(mechanic_time * 0.35) * 190.0); draw_circle(beacon,105,Color(zone.color,0.08)); draw_arc(beacon,105,0,TAU*mechanic_progress,42,zone.color,4)
 		"rotating_arena","mirror_field","polarity_shift":
-			for arm in range(6): draw_line(Vector2(640,390)+Vector2.from_angle(mechanic_time*0.2+TAU*arm/6.0)*70,Vector2(640,390)+Vector2.from_angle(mechanic_time*0.2+TAU*arm/6.0)*520,Color(zone.color,0.1),5)
+			for arm in range(6): draw_line(Vector2(640,390)+Vector2.from_angle(mechanic_time*0.2+TAU*arm/6.0)*70,Vector2(640,390)+Vector2.from_angle(mechanic_time*0.2+TAU*arm/6.0)*520,Color(HOSTILE_WARNING,0.12),5)
 		"shield_links":
 			for enemy in enemies:
 				for other in enemies:
-					if enemy!=other and enemy.pos.distance_to(other.pos)<145.0:draw_line(enemy.pos,other.pos,Color(zone.color,0.16),2)
+					if enemy!=other and enemy.pos.distance_to(other.pos)<145.0:draw_line(enemy.pos,other.pos,Color(HOSTILE_CORE,0.22),2)
 		"mine_lattice":
-			for origin in [Vector2(180,170),Vector2(1100,170),Vector2(180,610),Vector2(1100,610)]:draw_circle(origin,28.0+pulse*8.0,Color(zone.color,0.14));draw_arc(origin,36,0,TAU,12,zone.color,2)
+			for origin in [Vector2(180,170),Vector2(1100,170),Vector2(180,610),Vector2(1100,610)]:draw_circle(origin,28.0+pulse*8.0,Color(HOSTILE_WARNING,0.14));draw_arc(origin,36,0,TAU,12,HOSTILE_WARNING,2)
 		"warp_gates":
 			for gate in [Vector2(210,390),Vector2(1070,390)]:draw_arc(gate,52+pulse*8,mechanic_time,mechanic_time+PI*1.6,36,zone.color,5)
 		"healing_orbits":
 			for ring in range(3):draw_arc(Vector2(640,390),150+ring*100,mechanic_time*(0.2+ring*0.05),mechanic_time*(0.2+ring*0.05)+PI,36,Color("72efb1",0.18),4)
 		"fracture_zones":
-			for fracture in fracture_centers():draw_circle(fracture,72,Color(zone.color,0.09));draw_arc(fracture,72,0,TAU,18,Color(zone.color,0.45),3)
+			for fracture in fracture_centers():draw_circle(fracture,72,Color(HOSTILE_WARNING,0.09));draw_arc(fracture,72,0,TAU,18,Color(HOSTILE_WARNING,0.48),3)
 		_:
 			for band in range(3): draw_arc(Vector2(640,390),180+band*100,mechanic_time*(0.08+band*0.03),mechanic_time*(0.08+band*0.03)+PI,40,Color(zone.color,0.06),2)
 
@@ -876,28 +896,34 @@ func draw_aether_node(asteroid: Dictionary) -> void:
 func draw_enemy(enemy: Dictionary) -> void:
 	var pos: Vector2 = enemy.pos
 	var radius: float = enemy.radius
-	draw_circle(pos, radius + 4.0, Color("311629"))
+	draw_circle(pos, radius + 5.0, Color("2b1018"))
 	var points := PackedVector2Array()
 	var sides := 4 + int(enemy.variant)
 	for index in range(sides):
 		points.append(pos + Vector2.from_angle(TAU * index / sides + elapsed * 0.4) * radius)
-	draw_colored_polygon(points, Color(enemy.color, 0.9))
-	draw_circle(pos, radius * 0.38, Color("fb6f72"))
-	draw_circle(pos, radius * 0.16, Color("fff0c7"))
+	draw_colored_polygon(points, Color(enemy.color, 0.94))
+	var outline := points.duplicate()
+	outline.append(points[0])
+	draw_polyline(outline, Color("ff8790"), 1.8)
+	draw_circle(pos, radius * 0.38, HOSTILE_CORE)
+	draw_circle(pos, radius * 0.16, Color("ffd2c6"))
 
 
 func draw_boss() -> void:
 	var radius: float = boss.radius
 	for ring in range(3 + int(boss.phase) % 2):
-		draw_arc(boss.pos, radius + ring * 9.0, 0.0, TAU, 28, Color(zone.color, 0.65 - ring * 0.15), 4.0)
+		draw_arc(boss.pos, radius + ring * 9.0, 0.0, TAU, 28, Color(HOSTILE_WARNING, 0.72 - ring * 0.15), 4.0)
 	var points := PackedVector2Array()
 	var sides := 7 + int(zone.sector) + int(boss.phase)
 	for index in range(sides):
 		var scale := 1.0 if index % 2 == 0 else 0.58
 		points.append(boss.pos + Vector2.from_angle(TAU * index / sides + elapsed * (0.18 + chapter * 0.025)) * radius * scale)
-	draw_colored_polygon(points, Color("4b2031"))
-	draw_circle(boss.pos, radius * 0.48, zone.color)
-	draw_circle(boss.pos, radius * 0.20, Color("fff0c7"))
+	draw_colored_polygon(points, HOSTILE_BOSS)
+	var outline := points.duplicate()
+	outline.append(points[0])
+	draw_polyline(outline, Color("ff7180"), 2.5)
+	draw_circle(boss.pos, radius * 0.48, HOSTILE_CORE)
+	draw_circle(boss.pos, radius * 0.20, Color("ffd0c4"))
 
 
 func draw_player() -> void:
@@ -912,8 +938,9 @@ func draw_player() -> void:
 		player_pos - forward * 7.0,
 		player_pos - forward * 12.0 - side * 11.0
 	])
-	draw_colored_polygon(points, Color("e9e1c6"))
-	draw_polyline(PackedVector2Array([points[0], points[1], points[2], points[3], points[0]]), Color("163f43"), 3.0)
-	draw_circle(player_pos, 4.0, Color("55c8c0"))
+	draw_circle(player_pos, 22.0, Color(PLAYER_CORE, 0.08))
+	draw_colored_polygon(points, PLAYER_HULL)
+	draw_polyline(PackedVector2Array([points[0], points[1], points[2], points[3], points[0]]), PLAYER_EDGE, 3.0)
+	draw_circle(player_pos, 4.5, PLAYER_CORE)
 	if shield > 0:
-		draw_arc(player_pos, 19.0, -2.6, 0.55, 18, Color("72e0d1"), 2.0)
+		draw_arc(player_pos, 19.0, -2.6, 0.55, 18, PLAYER_SHIELD, 2.2)

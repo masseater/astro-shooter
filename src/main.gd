@@ -17,8 +17,16 @@ var active_session: GameSession
 var hud_labels: Dictionary = {}
 var last_zone := 0
 var selected_chapter := 0
-var upgrade_category := "ship"
-var upgrade_page := 0
+var selected_upgrade_id := ""
+var upgrade_tree: UpgradeTreeView
+var upgrade_title_label: Label
+var upgrade_prerequisite_label: Label
+var upgrade_effect_label: Label
+var upgrade_cost_label: Label
+var upgrade_status_label: Label
+var upgrade_buy_button: Button
+var upgrade_count_label: Label
+var upgrade_shard_label: Label
 var task_page := 0
 var achievement_page := 0
 
@@ -346,68 +354,131 @@ func claim_idle_reward() -> void:
 	Progress.claim_idle(); play_tone(880.0, 0.16); show_hub()
 
 
-func show_upgrades(category := "", page := -1) -> void:
-	if not category.is_empty(): upgrade_category = category
-	if page >= 0: upgrade_page = page
+func show_upgrades(_category := "", _page := -1) -> void:
 	clear_screen()
 	background.visible = true
 	background_dimmer.visible = true
 	var margin := screen_margin()
-	margin.add_theme_constant_override("margin_top",12);margin.add_theme_constant_override("margin_bottom",12)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
 	var layout := VBoxContainer.new()
-	layout.add_theme_constant_override("separation", 6)
+	layout.add_theme_constant_override("separation", 8)
 	margin.add_child(layout)
 	var header := HBoxContainer.new()
-	header.add_child(make_label(tx("船体改修ツリー", "SHIP MODIFICATION TREE"), 30, CREAM))
+	header.add_child(make_label(tx("強化ツリー", "UPGRADE TREE"), 30, CREAM))
 	header.add_spacer(false)
-	header.add_child(make_label(tx("SHARD %d", "SHARDS %d") % Progress.coffee(), 22, SHARD))
+	upgrade_count_label = make_label(tx("取得済み %d / %d", "INSTALLED %d / %d") % [Progress.data.upgrades.size(), ContentCatalog.UPGRADE_COUNT], 18, MUTED)
+	upgrade_count_label.name = "UpgradeInstalledCount"
+	header.add_child(upgrade_count_label)
+	upgrade_shard_label = make_label(tx("SHARD %d", "SHARDS %d") % Progress.coffee(), 22, SHARD)
+	upgrade_shard_label.name = "UpgradeShardBalance"
+	header.add_child(upgrade_shard_label)
 	header.add_child(make_button(tx("格納庫へ", "HANGAR"), show_hub, Vector2(150, 46)))
 	layout.add_child(header)
-	var tabs := HBoxContainer.new(); tabs.alignment = BoxContainer.ALIGNMENT_CENTER
-	for item in [["weapon",tx("武器 960", "WEAPONS 960")],["ship",tx("機体 300", "SHIP 300")],["facility",tx("施設 200", "FACILITY 200")],["slot",tx("装備枠 5", "SLOTS 5")],["keystone",tx("基幹 35", "KEYSTONES 35")]]:
-		var tab := make_button(item[1], show_upgrades.bind(item[0], 0), Vector2(180, 42)); tab.disabled = upgrade_category == item[0]; tabs.add_child(tab)
-	layout.add_child(tabs)
-	var filtered: Array[Dictionary] = []
-	for upgrade in ContentCatalog.upgrades():
-		if upgrade.category == upgrade_category: filtered.append(upgrade)
-	var page_size := 24; var page_count := maxi(1, int(ceil(float(filtered.size()) / page_size)))
-	upgrade_page = clampi(upgrade_page, 0, page_count - 1)
-	var grid := GridContainer.new(); grid.columns = 4; grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	grid.add_theme_constant_override("h_separation", 9); grid.add_theme_constant_override("v_separation", 5); layout.add_child(grid)
-	for index in range(upgrade_page * page_size, mini(filtered.size(), (upgrade_page + 1) * page_size)):
-		grid.add_child(make_upgrade_button(filtered[index]))
-	var pager := HBoxContainer.new(); pager.alignment = BoxContainer.ALIGNMENT_CENTER
-	var previous := make_button("◀", show_upgrades.bind(upgrade_category, upgrade_page - 1), Vector2(60, 42)); previous.disabled = upgrade_page == 0; pager.add_child(previous)
-	pager.add_child(make_label("%d / %d" % [upgrade_page + 1, page_count], 18, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
-	var next := make_button("▶", show_upgrades.bind(upgrade_category, upgrade_page + 1), Vector2(60, 42)); next.disabled = upgrade_page >= page_count - 1; pager.add_child(next)
-	layout.add_child(pager)
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 10)
+	layout.add_child(body)
+	var tree_panel := PanelContainer.new()
+	tree_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tree_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tree_panel.add_theme_stylebox_override("panel", style_box(Color("15101a"), Color("57434f"), 1, 7))
+	body.add_child(tree_panel)
+	upgrade_tree = UpgradeTreeView.new()
+	upgrade_tree.name = "UpgradeTree"
+	upgrade_tree.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upgrade_tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upgrade_tree.selection_changed.connect(_select_upgrade)
+	upgrade_tree.purchase_requested.connect(_buy_upgrade)
+	upgrade_tree.exit_requested.connect(show_hub)
+	tree_panel.add_child(upgrade_tree)
+	var detail_panel := PanelContainer.new()
+	detail_panel.custom_minimum_size = Vector2(330, 0)
+	detail_panel.add_theme_stylebox_override("panel", style_box(Color("1c141e"), Color("6b535f"), 1, 7))
+	body.add_child(detail_panel)
+	var detail := VBoxContainer.new()
+	detail.alignment = BoxContainer.ALIGNMENT_CENTER
+	detail.add_theme_constant_override("separation", 13)
+	detail_panel.add_child(detail)
+	detail.add_child(make_label(tx("選択ノード", "SELECTED NODE"), 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER))
+	upgrade_title_label = make_label("—", 24, CREAM, HORIZONTAL_ALIGNMENT_CENTER)
+	upgrade_title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.add_child(upgrade_title_label)
+	upgrade_status_label = make_label("—", 15, SHARD, HORIZONTAL_ALIGNMENT_CENTER)
+	detail.add_child(upgrade_status_label)
+	var separator := HSeparator.new()
+	detail.add_child(separator)
+	upgrade_prerequisite_label = make_label("—", 15, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	upgrade_prerequisite_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.add_child(upgrade_prerequisite_label)
+	upgrade_effect_label = make_label("—", 17, CREAM, HORIZONTAL_ALIGNMENT_CENTER)
+	upgrade_effect_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.add_child(upgrade_effect_label)
+	upgrade_cost_label = make_label("—", 19, SHARD, HORIZONTAL_ALIGNMENT_CENTER)
+	detail.add_child(upgrade_cost_label)
+	detail.add_spacer(false)
+	upgrade_buy_button = make_button(tx("取得", "INSTALL"), _buy_selected_upgrade, Vector2(250, 52))
+	detail.add_child(upgrade_buy_button)
+	var instructions := make_label(tx("ドラッグ: 移動 • ホイール: 拡大縮小 • 方向キー/D-pad: 選択 • Enter/A: 取得 • Esc/B: 戻る", "Drag: pan • Wheel: zoom • Arrows/D-pad: select • Enter/A: install • Esc/B: back"), 14, MUTED, HORIZONTAL_ALIGNMENT_CENTER)
+	layout.add_child(instructions)
+	upgrade_tree.configure(ContentCatalog.upgrades(), selected_upgrade_id)
+	upgrade_tree.grab_focus()
 
 
-func make_upgrade_button(upgrade: Dictionary) -> Button:
-	var owned := Progress.has_upgrade(upgrade.id)
-	var prerequisite_met := String(upgrade.requires).is_empty() or Progress.has_upgrade(upgrade.requires)
-	var task_requirement := String(upgrade.get("task_requires", ""))
-	var task_met: bool = task_requirement.is_empty() or task_requirement in Progress.data.tasks
-	var label_text := "%s\n%s" % [localized_upgrade_title(upgrade), localized_stat(String(upgrade.stat)) + " +" + ContentCatalog.format_percent(float(upgrade.value), String(upgrade.stat))]
+func _select_upgrade(id: String) -> void:
+	selected_upgrade_id = id
+	var upgrade := ContentCatalog.upgrade_by_id(id)
+	if upgrade.is_empty() or upgrade_title_label == null:
+		return
+	upgrade_title_label.text = localized_upgrade_title(upgrade)
+	upgrade_effect_label.text = tx("効果: ", "EFFECT: ") + localized_stat(String(upgrade.stat)) + " +" + ContentCatalog.format_percent(float(upgrade.value), String(upgrade.stat))
+	upgrade_cost_label.text = tx("費用: %d Shards", "COST: %d SHARDS") % int(upgrade.cost)
+	var prerequisite := String(upgrade.requires)
+	upgrade_prerequisite_label.text = tx("前提: コア接続", "REQUIRES: CORE LINK") if prerequisite.is_empty() else tx("前提: ", "REQUIRES: ") + localized_upgrade_title(ContentCatalog.upgrade_by_id(prerequisite))
+	var owned := Progress.has_upgrade(id)
+	var can_buy := Progress.can_buy(upgrade)
 	if owned:
-		label_text += " • " + tx("導入済", "INSTALLED")
+		upgrade_status_label.text = tx("導入済み", "INSTALLED")
+		upgrade_status_label.add_theme_color_override("font_color", TEAL)
+	elif can_buy:
+		upgrade_status_label.text = tx("取得可能 • 深度 %d", "AVAILABLE • DEPTH %d") % (int(upgrade.unlock_chapter) + 1)
+		upgrade_status_label.add_theme_color_override("font_color", Color("dda85c"))
 	else:
-		label_text += " • " + tx("費用 %d", "COST %d") % upgrade.cost
-		if not task_met:
-			label_text += " • TASK LOCK"
-	var button := make_button(label_text, _buy_upgrade.bind(upgrade.id), Vector2(286, 66))
-	button.add_theme_font_size_override("font_size", 13)
-	button.disabled = owned or not prerequisite_met or not task_met or Progress.current_chapter() < int(upgrade.unlock_chapter) or Progress.coffee() < int(upgrade.cost)
-	if owned:
-		button.add_theme_stylebox_override("disabled", style_box(Color(upgrade.color, 0.20), upgrade.color, 2, 6))
-		button.add_theme_color_override("font_disabled_color", CREAM)
-	return button
+		upgrade_status_label.text = _upgrade_lock_reason(upgrade)
+		upgrade_status_label.add_theme_color_override("font_color", Color("8c747f"))
+	upgrade_buy_button.disabled = not can_buy
+	upgrade_buy_button.text = tx("導入済み", "INSTALLED") if owned else tx("取得", "INSTALL")
+
+
+func _upgrade_lock_reason(upgrade: Dictionary) -> String:
+	if Progress.current_chapter() < int(upgrade.unlock_chapter):
+		return tx("深度ロック: CHAPTER %d", "DEPTH LOCK: CHAPTER %d") % (int(upgrade.unlock_chapter) + 1)
+	var task_requirement := String(upgrade.get("task_requires", ""))
+	if not task_requirement.is_empty() and task_requirement not in Progress.data.tasks:
+		return tx("任務条件が未達成", "MISSION REQUIREMENT LOCKED")
+	var prerequisite := String(upgrade.requires)
+	if not prerequisite.is_empty() and not Progress.has_upgrade(prerequisite):
+		return tx("前提ノードが未取得", "PREREQUISITE NOT INSTALLED")
+	if Progress.coffee() < int(upgrade.cost):
+		return tx("Shard不足", "INSUFFICIENT SHARDS")
+	return tx("ロック中", "LOCKED")
+
+
+func _buy_selected_upgrade() -> void:
+	if not selected_upgrade_id.is_empty():
+		_buy_upgrade(selected_upgrade_id)
 
 
 func _buy_upgrade(id: String) -> void:
 	if Progress.buy_upgrade(id):
 		play_tone(660.0, 0.13)
-		show_upgrades()
+		if upgrade_count_label != null:
+			upgrade_count_label.text = tx("取得済み %d / %d", "INSTALLED %d / %d") % [Progress.data.upgrades.size(), ContentCatalog.UPGRADE_COUNT]
+		if upgrade_shard_label != null:
+			upgrade_shard_label.text = tx("SHARD %d", "SHARDS %d") % Progress.coffee()
+		if upgrade_tree != null:
+			upgrade_tree.refresh()
+		_select_upgrade(id)
 
 
 func show_tasks(page := -1) -> void:

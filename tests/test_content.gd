@@ -16,6 +16,7 @@ func _run_tests() -> void:
 	test_all_combat_content()
 	test_save_roundtrip()
 	test_legacy_save_migration()
+	await create_timer(0.1).timeout
 	if failures.is_empty():
 		print("PASS: content and progression checks")
 		quit(0)
@@ -184,6 +185,7 @@ func test_all_combat_content() -> void:
 	session.configure(99, progress.combat_stats(), ["pulse"])
 	root.add_child(session)
 	for index in range(10): session.spawn_enemy()
+	expect(session.enemies.all(func(enemy): return Color(enemy.color).r > Color(enemy.color).b), "every hostile hull must use a red-dominant palette")
 	var families: Dictionary = {}
 	for weapon in ContentCatalog.WEAPONS:
 		session.fire_weapon(weapon, Vector2.RIGHT)
@@ -196,7 +198,10 @@ func test_all_combat_content() -> void:
 	session.player_bullets.clear();session.stats.weapon_utility.pulse=0.0;session.spawn_player_bullet(Vector2.RIGHT,ContentCatalog.weapon_by_id("pulse"));var baseline_damage:float=float(session.player_bullets[0].damage)
 	session.player_bullets.clear();session.stats.weapon_utility.pulse=1.0;session.spawn_player_bullet(Vector2.RIGHT,ContentCatalog.weapon_by_id("pulse"));expect(float(session.player_bullets[0].damage)>baseline_damage,"weapon utility upgrades must alter combat output")
 	session.enemy_bullets.clear();session.boss_fire_intensity=1.0;session.spawn_enemy_bullet(Vector2.ZERO,0.0,100.0,Color.WHITE);var normal_speed:float=session.enemy_bullets[0].vel.length()
+	expect(Color(session.enemy_bullets[0].color).r > Color(session.enemy_bullets[0].color).b, "hostile projectiles must use a red-dominant palette")
 	session.enemy_bullets.clear();session.boss_fire_intensity=2.0;session.spawn_enemy_bullet(Vector2.ZERO,0.0,100.0,Color.WHITE);expect(session.enemy_bullets[0].vel.length()>normal_speed*1.9,"boss phase intensity must scale every authored attack")
+	session.player_bullets.clear();session.spawn_player_bullet(Vector2.RIGHT,ContentCatalog.weapon_by_id("pulse"));expect(Color(session.player_bullets[0].color).b>Color(session.player_bullets[0].color).r,"player projectiles must use a blue-dominant palette")
+	expect(GameSession.PLAYER_CORE.b > GameSession.PLAYER_CORE.r and GameSession.HOSTILE_CORE.r > GameSession.HOSTILE_CORE.b, "player and hostile core palettes must remain visually distinct")
 	session.boss_fire_intensity=1.0
 	for zone_index in range(ContentCatalog.ZONE_COUNT):
 		session.zone = ContentCatalog.zone(zone_index)
