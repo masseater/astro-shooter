@@ -1,0 +1,15 @@
+"appbuild"
+{
+	"appid" "YOUR_APP_ID"
+	"desc" "Riftweld release"
+	"buildoutput" "../build/steam-output"
+	"contentroot" "../build"
+	"setlive" ""
+	"preview" "1"
+	"depots"
+	{
+		"YOUR_WINDOWS_DEPOT_ID" "depot_windows.vdf.example"
+		"YOUR_LINUX_DEPOT_ID" "depot_linux.vdf.example"
+		"YOUR_MACOS_DEPOT_ID" "depot_macos.vdf.example"
+	}
+}

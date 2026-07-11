@@ -1,0 +1,93 @@
+name: Godot Release CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GODOT_VERSION: "4.7-stable"
+      TEMPLATE_VERSION: "4.7.stable"
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Download Godot 4.7
+        run: |
+          curl -L --fail --retry 3 -O "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.7-stable_linux.x86_64.zip"
+          curl -L --fail --retry 3 -O "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/SHA512-SUMS.txt"
+          grep 'Godot_v4.7-stable_linux.x86_64.zip$' SHA512-SUMS.txt | sha512sum -c -
+          unzip -q Godot_v4.7-stable_linux.x86_64.zip
+          chmod +x Godot_v4.7-stable_linux.x86_64
+          sudo mv Godot_v4.7-stable_linux.x86_64 /usr/local/bin/godot
+
+      - name: Install export templates
+        run: |
+          curl -L --fail --retry 3 -O "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v4.7-stable_export_templates.tpz"
+          grep 'Godot_v4.7-stable_export_templates.tpz$' SHA512-SUMS.txt | sha512sum -c -
+          mkdir -p "$HOME/.local/share/godot/export_templates/${TEMPLATE_VERSION}"
+          unzip -j Godot_v4.7-stable_export_templates.tpz 'templates/*' -d "$HOME/.local/share/godot/export_templates/${TEMPLATE_VERSION}"
+
+      - name: Parse and import project
+        run: |
+          ./scripts/fetch_godot_copyright.sh .
+          godot --headless --editor --path . --quit
+
+      - name: Run content and progression tests
+        run: godot --headless --path . --script tests/test_content.gd
+
+      - name: Run release readiness tests
+        run: godot --headless --path . --script tests/test_release_readiness.gd
+
+      - name: Export Web release
+        run: |
+          mkdir -p build/web
+          godot --headless --path . --export-release Web build/web/index.html
+          test -s build/web/index.html
+          test -s build/web/index.wasm
+          test -s build/web/index.pck
+
+      - name: Export Steam desktop releases
+        run: |
+          mkdir -p build/windows build/linux build/macos
+          godot --headless --path . --export-release "Windows Desktop" build/windows/Riftweld.exe
+          godot --headless --path . --export-release Linux build/linux/Riftweld.x86_64
+          godot --headless --path . --export-release macOS build/macos/Riftweld.zip
+          cp THIRD_PARTY_NOTICES.md GODOT_COPYRIGHT.txt assets/fonts/OFL.txt build/windows/
+          cp THIRD_PARTY_NOTICES.md GODOT_COPYRIGHT.txt assets/fonts/OFL.txt build/linux/
+          cp THIRD_PARTY_NOTICES.md GODOT_COPYRIGHT.txt assets/fonts/OFL.txt build/macos/
+          chmod +x build/linux/Riftweld.x86_64
+          test -s build/windows/Riftweld.exe
+          test -s build/linux/Riftweld.x86_64
+          test -s build/macos/Riftweld.zip
+          test -s build/windows/THIRD_PARTY_NOTICES.md
+          test -s build/linux/OFL.txt
+
+      - name: Smoke test Linux release binary
+        run: timeout 20s build/linux/Riftweld.x86_64 --headless --audio-driver Dummy --quit-after 10
+
+      - name: Package platform artifacts
+        run: |
+          (cd build/windows && zip -qr ../riftweld-windows.zip .)
+          tar -C build/linux -czf build/riftweld-linux.tar.gz .
+          mkdir -p build/macos/content
+          unzip -q build/macos/Riftweld.zip -d build/macos/content
+          cp THIRD_PARTY_NOTICES.md GODOT_COPYRIGHT.txt assets/fonts/OFL.txt build/macos/content/
+          tar -C build/macos/content -czf build/riftweld-macos.tar.gz .
+          test -s build/riftweld-windows.zip
+          test -s build/riftweld-linux.tar.gz
+          test -s build/riftweld-macos.tar.gz
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: riftweld-release-builds
+          path: |
+            build/web
+            build/riftweld-windows.zip
+            build/riftweld-linux.tar.gz
+            build/riftweld-macos.tar.gz
