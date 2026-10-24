@@ -1,0 +1,9 @@
+.godot/
+build/*
+!build/.gdignore
+.local-agents/
+assets/backgrounds/
+test-results/
+*.log
+.DS_Store
+GODOT_COPYRIGHT.txt
